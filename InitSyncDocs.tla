@@ -38,18 +38,43 @@ vars == <<oplog, remoteColl, remoteCollSeq, cursor, localColl, syncing>>
     
 Range(f) == {f[i] : i \in DOMAIN f}  
 
-\* Nilete an element from a sequence at a specified index.
-DeleteElement(seq, index) == [i \in 1..(Len(seq)-1) |-> IF i<index THEN seq[i] ELSE seq[(i+1)]]  
+Injective(f) == \A x, y \in DOMAIN f : f[x] = f[y] => x = y
+
+\* Delete an element from a sequence at a specified index.
+DeleteElement(seq, index) == [i \in 1..(Len(seq)-1) |-> IF i<index THEN seq[i] ELSE seq[(i+1)]] 
+
+\*
+\*In the WiredTiger storage engine, collection scans are guaranteed to return documents in their 'RecordId' order. 
+\*This should correspond to the insertion order of the documents. Thus, in a collection scan, newly inserted documents
+\*should get put at the "end" of the scan. Updated documents, similarly, stay in place. In MMAPv1, however, the internal
+\*organization of documents/records is different. A collection scan in MMAP does not follow the RecordId ordering,
+\*and a document insert may get placed at some arbitrary point in the scan order. Similarly, an updated document
+\*may be "moved" in MMAP, in which case it can also be placed at some new, arbitrary point in the scan. We encode
+\*these different semantics into the operation behaviors below.
+\*
 
 \* The sync source performs an insert. (ACTION)
-Insert(d) == 
+WTInsert(d) == 
     \* Cannot have duplicate documents.
     /\ remoteColl[d] = Nil
     /\ remoteColl' = [remoteColl EXCEPT ![d] = 0]
-    \* Append documents to the end of the sequence for now.
+    \* (WiredTiger)
+    \* Append documents to the end of the sequence.
     /\ remoteCollSeq' = Append(remoteCollSeq, d)
     /\ oplog' = Append(oplog, <<"i", d, 0>>)
     /\ UNCHANGED <<localColl, cursor, syncing>>
+
+MMAPInsert(d) == 
+    \* Cannot have duplicate documents.
+    /\ remoteColl[d] = Nil
+    /\ remoteColl' = [remoteColl EXCEPT ![d] = 0]
+    \* When a new document is inserted, allow it to be inserted anywhere in the collection scan order.
+    \* To start with a simple case, insert it at the beginning of the order. This also requires
+    \* us to move the cursor position forward by 1. 
+    /\ remoteCollSeq' = <<d>> \o remoteCollSeq 
+    /\ cursor' = IF cursor = EOF THEN cursor ELSE cursor + 1
+    /\ oplog' = Append(oplog, <<"i", d, 0>>)
+    /\ UNCHANGED <<localColl, syncing>>
 
 \* The sync source performs an update. (ACTION)
 Update(d) == 
@@ -66,8 +91,7 @@ Delete(d) ==
     /\ remoteColl[d] # Nil
     \* Set the document to Nil. Don't re-position the document in scan order.
     /\ remoteColl' = [remoteColl EXCEPT ![d] = Nil]
-    \* We have to delete the element from the collection sequence. We don't need to adjust the cursor because
-    \*
+    \* We have to delete the element from the collection sequence. Do we need to adjust cursor position? (Will)
     /\ LET ind == CHOOSE i \in DOMAIN remoteCollSeq : remoteCollSeq[i] = d IN
                   /\ remoteCollSeq' = DeleteElement(remoteCollSeq, ind)
                   /\ cursor' = IF ind = cursor THEN (cursor + 0) ELSE cursor
@@ -93,7 +117,7 @@ FetchDoc ==
     
 \* Finish the sync. This can happen any time after the data clone is completed. (ACTION) 
 \*
-\* In this model, this means the sync source will stop executing new operations. In the real
+\* In this spec, this means the sync source will stop executing new operations. In the real
 \* system this would mean we stop fetching oplog entries from the source.   
 FinishSync == 
     /\ CloneComplete /\ syncing = TRUE
@@ -116,14 +140,10 @@ ApplyOp ==
            ELSE IF op = "d" THEN localColl' = [localColl EXCEPT ![d] = v]
            ELSE UNCHANGED <<localColl>>
     /\ oplog' = Tail(oplog)
-    /\ IF Len(oplog) = 1 THEN cursor' = Nil ELSE UNCHANGED cursor \* signal the end of initial sync.
-    /\ UNCHANGED <<remoteColl, remoteCollSeq, syncing>>
+    /\ UNCHANGED <<remoteColl, remoteCollSeq, cursor, syncing>>
 
-\*
-\* Define the possible initial states.
-\*
 
-Injective(f) == \A x, y \in DOMAIN f : f[x] = f[y] => x = y
+\* Define the initial/next states.
 
 Init == 
     /\ oplog = <<>>
@@ -139,25 +159,54 @@ Init ==
     \* clone documents.
     /\ syncing = TRUE
 
+\* Only execute ops while the sync is ongoing.
+\*InsertAction == \E d \in Document: syncing /\ WTInsert(d)
+InsertAction == \E d \in Document: syncing /\ MMAPInsert(d)
+UpdateAction == \E d \in Document: syncing /\ Update(d)
+DeleteAction == \E d \in Document: syncing /\ Delete(d)
+
 Next == 
     \* A remote op occurs.
-    \E d \in Document:
-        /\ syncing \* Stop executing new ops after the sync has completed.
-        /\ \/ Insert(d) 
-           \/ Update(d)
-           \/ Delete(d)
-    \* The syncing node fetches a new document.
+    \/ InsertAction
+\*    \/ UpdateAction
+\*    \/ DeleteAction
     \/ FetchDoc
+    \/ FinishSync
     \* Apply operations after the collection clone is finished.
     \/ ApplyOp
 
 Spec == Init /\ [][Next]_vars
 
+\*
+\* Some properties to check.
+\*
+
 \* If the sync has finished and we have applied all necessary operations, then the data between both 
 \* nodes should match.
 DataConsistency == (syncing = FALSE /\ oplog = <<>>) => /\ remoteColl = localColl
 
+\* Do we ever try to insert a document during oplog application that we did not already have locally?
+ApplyNewDocInsert == 
+    /\ Len(oplog) > 0
+    /\ syncing = FALSE 
+    /\ Head(oplog)[1] = "i" \* about to apply an insert.
+    /\ LET d == Head(oplog)[2] IN localColl[d] = Nil
+    
+\* Assertion: In WiredTiger, if an insert occurs during the collection clone, we should be guaranteed to clone it.
+\* (Check this)
+AlwaysCloneInsertWT == 
+    \E d \in Document:
+        (/\ Len(oplog) > 0 
+         /\ cursor # EOF 
+         /\ Head(oplog)[1] = "i"
+         /\ Head(oplog)[2] = d) ~> cursor # EOF /\ localColl[d] # Nil
+
+\*AlwaysCloneInsertWTProp == [][AlwaysCloneInsertWT]_vars
+
+\* Assertion: In MMAP, if an insert occurs during the collection clone, we are NOT guaranteed to clone it.
+\* (Check this)
+
 ====================================================================================================
 \* Modification History
-\* Last modified Tue Jul 16 15:06:20 EDT 2019 by williamschultz
+\* Last modified Tue Jul 16 16:20:58 EDT 2019 by williamschultz
 \* Created Mon Jul 15 22:10:20 EDT 2019 by williamschultz
