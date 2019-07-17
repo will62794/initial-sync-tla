@@ -1,0 +1,70 @@
+TLC2 Version 2.13 of 18 July 2018
+Running breadth-first search Model-Checking with seed -5452717370167407239 with 2 workers on 4 cores with 1214MB heap and 2730MB offheap memory (Mac OS X 10.13.6 x86_64, Oracle Corporation 1.8.0_101 x86_64).
+Starting SANY...
+Parsing file /Users/williamschultz/Dropbox/MongoDB/Replication/TLA+/InitialSyncMissingDocs/InitSyncDocs.toolbox/simple/MC.tla
+Parsing file /Users/williamschultz/Dropbox/MongoDB/Replication/TLA+/InitialSyncMissingDocs/InitSyncDocs.toolbox/simple/InitSyncDocs.tla
+Parsing file /Applications/TLA+ Toolbox-1.5.7.app/Contents/Eclipse/plugins/org.lamport.tlatools_1.0.0.201807180447/tla2sany/StandardModules/TLC.tla
+Parsing file /Applications/TLA+ Toolbox-1.5.7.app/Contents/Eclipse/plugins/org.lamport.tlatools_1.0.0.201807180447/tla2sany/StandardModules/Sequences.tla
+Parsing file /Applications/TLA+ Toolbox-1.5.7.app/Contents/Eclipse/plugins/org.lamport.tlatools_1.0.0.201807180447/tla2sany/StandardModules/Naturals.tla
+Parsing file /Applications/TLA+ Toolbox-1.5.7.app/Contents/Eclipse/plugins/org.lamport.tlatools_1.0.0.201807180447/tla2sany/StandardModules/Integers.tla
+Parsing file /Users/williamschultz/Dropbox/MongoDB/Replication/TLA+/InitialSyncMissingDocs/InitSyncDocs.toolbox/simple/FiniteSets.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module Integers
+Semantic processing of module FiniteSets
+Semantic processing of module InitSyncDocs
+Semantic processing of module TLC
+Semantic processing of module MC
+SANY finished.
+Starting... (2019-07-17 16:44:50)
+Computing initial states...
+Computed 2 initial states...
+Computed 4 initial states...
+Computed 8 initial states...
+Computed 16 initial states...
+Computed 32 initial states...
+Computed 64 initial states...
+Computed 128 initial states...
+Computed 256 initial states...
+Finished computing initial states: 493 states generated, with 50 of them distinct.
+Invariant inv_1563396289015243000 is violated.
+The behavior up to this point is:
+1: <Initial predicate>
+/\ remoteColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> (k1 :> Nil @@ k2 :> 0))
+/\ localColl = (d1 :> Nil @@ d2 :> Nil @@ d3 :> Nil)
+/\ oplog = <<>>
+/\ remoteCollSeq = <<d2, d3>>
+/\ cursor = 1
+/\ syncing = TRUE
+
+2: <MMAPUpdateAction line 183, col 55 to line 183, col 81 of module InitSyncDocs>
+/\ remoteColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> (k1 :> 0 @@ k2 :> 0))
+/\ localColl = (d1 :> Nil @@ d2 :> Nil @@ d3 :> Nil)
+/\ oplog = <<<<"u", d3, k1, 0>>>>
+/\ remoteCollSeq = <<d3, d2>>
+/\ cursor = 2
+/\ syncing = TRUE
+
+3: <FetchDoc line 114, col 5 to line 122, col 66 of module InitSyncDocs>
+/\ remoteColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> (k1 :> 0 @@ k2 :> 0))
+/\ localColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> Nil)
+/\ oplog = <<<<"u", d3, k1, 0>>>>
+/\ remoteCollSeq = <<d3, d2>>
+/\ cursor = EOF
+/\ syncing = TRUE
+
+4: <FinishSync line 129, col 5 to line 131, col 72 of module InitSyncDocs>
+/\ remoteColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> (k1 :> 0 @@ k2 :> 0))
+/\ localColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> Nil)
+/\ oplog = <<<<"u", d3, k1, 0>>>>
+/\ remoteCollSeq = <<d3, d2>>
+/\ cursor = EOF
+/\ syncing = FALSE
+
+5: <ApplyOp line 136, col 5 to line 156, col 63 of module InitSyncDocs>
+/\ remoteColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> (k1 :> 0 @@ k2 :> 0))
+/\ localColl = (d1 :> Nil @@ d2 :> (k1 :> Nil @@ k2 :> Nil) @@ d3 :> (k1 :> 0 @@ k2 :> Nil))
+/\ oplog = <<>>
+/\ remoteCollSeq = <<d3, d2>>
+/\ cursor = EOF
+/\ syncing = FALSE
