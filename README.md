@@ -19,5 +19,5 @@ StateConstraint: Len(oplog) <= 4
 ```
 
 
-When using the `MMAPUpdateAction` and checking the `DataConsistency` invariant, a violation is found in a few seconds. [Here](mmap_initial_sync_consistency_violation.txt) is a raw trace of such a run. When using the `WTUpdateAction` and checking the same invariant, no violation is found. The model checker ran for around 1 minute and produced 1,328,041 distinct states.
+When using the `MMAPUpdateAction` and checking the `DataConsistency` invariant, a violation is found in a few seconds. [Here](traces/mmap_initial_sync_consistency_violation.txt) is a raw trace of such a run. When using the `WTUpdateAction` and checking the same invariant, no violation is found. The model checker ran for around 1 minute and produced 1,328,041 distinct states.
 
