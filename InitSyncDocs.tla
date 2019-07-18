@@ -196,8 +196,8 @@ Next ==
     \* A remote op occurs.
     \/ InsertAction
     \* Can choose the collection scan semantics.
-    \/ MMAPUpdateAction
-\*    \/ WTUpdateAction
+\*    \/ MMAPUpdateAction
+    \/ WTUpdateAction
     \/ FetchDoc
     \/ FinishSync
     \* Apply operations after the collection clone is finished.
@@ -205,21 +205,34 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
-\*
-\* Some properties to check.
-\*
+(**************************************************************************************************)
+(* Properties to check                                                                            *)
+(**************************************************************************************************)
 
 \* If the sync has finished and we have applied all necessary operations, then the data between both 
-\* nodes should match.
+\* nodes should match. This should be the fundamental high level correctness requirement of initial sync.
 DataConsistency == (syncing = FALSE /\ oplog = <<>>) => remoteColl = localColl
 
-\* Do we ever try to insert a document that already exists in the local collection during the clone phase.
+
+(**************************************************************************************************)
+(* Even though satisfaction of the 'DataConsistency' invariant should theoretically be sufficient *)
+(* to tell us whether the initial sync process is correct, we can also ask more specific          *)
+(* questions about possible behaviors of the system.  Some of these involve questions relating to *)
+(* when we may insert or update a document that does or doesn't already exist.  For example, if   *)
+(* it possible that we may insert a document that already exists during initial sync, then we may *)
+(* need to explicitly ignore and accept this kind of error in the real system (e.g.  a            *)
+(* DuplicateKey error).                                                                           *)
+(**************************************************************************************************)
+
+\* A state predicate that holds true when the next step we take could be to fetch and insert a document 
+\* that already exists in the local collection during the clone phase.
 InsertExistingDocDuringClone == 
     /\ syncing = TRUE
     /\ ~CloneComplete
     \* The next document to fetch is 'd', but 'd' already exists locally.
     /\ \E d \in Document: 
         /\ Len(remoteCollSeq) > 0
+        /\ cursor <= Len(remoteCollSeq)
         /\ remoteCollSeq[cursor] = d /\ localColl[d] # Nil
 
 \* A state predicate that holds true when the next step we take would be to apply an update operation 
@@ -232,5 +245,5 @@ ApplyUpdateToMissingDoc ==
 
 ====================================================================================================
 \* Modification History
-\* Last modified Thu Jul 18 12:57:36 EDT 2019 by williamschultz
+\* Last modified Thu Jul 18 14:37:59 EDT 2019 by williamschultz
 \* Created Mon Jul 15 22:10:20 EDT 2019 by williamschultz
