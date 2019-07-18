@@ -1,12 +1,15 @@
 --------------------------------------- MODULE InitSyncDocs ---------------------------------------
-\*
-\* Initial syncing a single MongoDB collection.
-\*
+(**************************************************************************************************)
+(* Modeling initial sync of a single MongoDB collection.                                          *)
+(**************************************************************************************************)
 
 EXTENDS Sequences, Naturals, Integers, FiniteSets
 
-\* The set of all possible documents and all possible keys (i.e. fields).
-CONSTANT Document, Key
+\* The set of all possible document ids.
+CONSTANT Document
+
+\* The set of all possible document keys (i.e. fields).
+CONSTANT Key
 
 \* An empty value.
 CONSTANT Nil
@@ -31,7 +34,8 @@ VARIABLE cursor
 VARIABLE localColl
 
 \* A boolean flag that determines whether the initial sync is in progress. The sync begins when 
-\* the receiver starts fetching log entries, and completes when it stops fetching entries.
+\* the receiver starts fetching log entries, and completes when it stops fetching entries. Fetching must begin
+\* before data cloning starts, and must finish after data cloning completes.
 VARIABLE syncing
 
 vars == <<oplog, remoteColl, remoteCollSeq, cursor, localColl, syncing>>
@@ -42,7 +46,6 @@ Injective(f) == \A x, y \in DOMAIN f : f[x] = f[y] => x = y
 
 \* Delete an element from a sequence at a specified index.
 DeleteElement(seq, index) == [i \in 1..(Len(seq)-1) |-> IF i<index THEN seq[i] ELSE seq[(i+1)]] 
-
 
 (**************************************************************************************************)
 (* MongoDB Collection Scan Semantics                                                              *)
@@ -60,14 +63,14 @@ DeleteElement(seq, index) == [i \in 1..(Len(seq)-1) |-> IF i<index THEN seq[i] E
 (**************************************************************************************************)
 
 \* The sync source performs an insert. (ACTION)
-Insert(d) == 
+Insert(d, dv) == 
     \* Cannot have duplicate documents.
     /\ remoteColl[d] = Nil
     \* Insert the initial document.
-    /\ remoteColl' = [remoteColl EXCEPT ![d] = [k \in Key |-> 0]]
+    /\ remoteColl' = [remoteColl EXCEPT ![d] = dv]
     \* Append documents to the end of the sequence.
     /\ remoteCollSeq' = Append(remoteCollSeq, d)
-    /\ oplog' = Append(oplog, <<"i", d, Nil, [k \in Key |-> 0]>>)
+    /\ oplog' = Append(oplog, <<"i", d, Nil, dv>>)
     /\ UNCHANGED <<localColl, cursor, syncing>>
 
 \* The sync source performs an update. (ACTION)
@@ -76,18 +79,26 @@ MMAPUpdate(d, k) ==
     /\ remoteColl[d] # Nil
     \* The key in the doc may or may not exist already. Bump its version if it does.
     /\ LET newVersion == IF remoteColl[d][k] = Nil THEN 0 ELSE remoteColl[d][k] + 1 IN
-        /\ remoteColl' = [remoteColl EXCEPT ![d] = [remoteColl[d] EXCEPT ![k] = newVersion]]
+        /\ remoteColl' = [remoteColl EXCEPT ![d][k] = newVersion]
         /\ oplog' = Append(oplog, <<"u", d, k, newVersion>>)
         
     (* MMAPv1 Specific Semantics *)
     \* The document may be moved to some new, arbitrary position in the scan order. To make this spec
-    \* easier to write, we assume for now that the doc is moved to the beginning of the sequence.
-    \* If cursor is already EOF, there's no need to adjust its position.
+    \* easier to write, we assume for now that the doc is either moved to the beginning of the sequence or the
+    \* end of the sequence.
     /\ LET ind == CHOOSE i \in DOMAIN remoteCollSeq : remoteCollSeq[i] = d IN
-       (\/ /\ remoteCollSeq' = <<d>> \o DeleteElement(remoteCollSeq, ind) \* move to beginning.
+       \* Move to the beginning.
+       \/ (/\ remoteCollSeq' = <<d>> \o DeleteElement(remoteCollSeq, ind) \* move to beginning.
            \* If the cursor is EOF or the document was already the first in the sequence, 
            \* do not adjust the cursor.
            /\ cursor' = IF (cursor = EOF \/ ind = 1) THEN cursor ELSE cursor + 1)
+       \* Move to the end. 
+       \/ (/\ remoteCollSeq' = DeleteElement(remoteCollSeq, ind) \o <<d>> \* move to end.
+           \* If the cursor is EOF or the document was already the last in the sequence, 
+           \* do not adjust the cursor.
+           /\ cursor' = IF (cursor = EOF \/ ind = Len(remoteCollSeq)) THEN cursor 
+                        ELSE IF cursor <= ind THEN cursor
+                        ELSE cursor - 1)
     /\ UNCHANGED <<localColl, syncing>>   
 
 \* The sync source performs an update. (ACTION)
@@ -114,9 +125,9 @@ FetchDoc ==
     /\ ~CloneComplete 
     /\ cursor <= Len(remoteCollSeq)
     /\ LET d == remoteCollSeq[cursor] IN
-        \* The document is fetched at its current version.
+        \* Fetch the current document value.
         /\ localColl' = [localColl EXCEPT ![d] = remoteColl[d]]
-        \* Advance the cursor. We use a special 'EOF' value to indicate that the cursor has ran past the 
+        \* Advance the cursor. We use a special 'EOF' value to indicate that the cursor has run past the 
         \* end of the collection, so that it cannot retrieve any more documents.
         /\ cursor' = IF (cursor + 1) > Len(remoteCollSeq) THEN EOF ELSE (cursor + 1)
         /\ UNCHANGED <<remoteColl, remoteCollSeq, oplog, syncing>>
@@ -149,8 +160,6 @@ ApplyOp ==
                     THEN [ik \in Key |-> IF ik = k THEN v ELSE Nil] 
                     \* The document exists locally and we update the key. 
                     ELSE [localColl[d] EXCEPT ![k] = v]]            
-           \* delete.
-           \* ELSE IF op = "d" THEN localColl' = [localColl EXCEPT ![d] = v]
            ELSE UNCHANGED <<localColl>>
     /\ oplog' = Tail(oplog)
     /\ UNCHANGED <<remoteColl, remoteCollSeq, cursor, syncing>>
@@ -158,12 +167,15 @@ ApplyOp ==
 
 \* Define the initial/next states.
 
+\* The set of all possible document values.
+DocumentVal == [Key -> {0, Nil}]
+
 Init == 
     /\ oplog = <<>>
     \* A collection is a map from document ids to the values of those documents. Document non-existence is 
     \* represented by a document mapping to 'Nil'. If a document exists, its value is itself a mapping from
-    \* keys to their version numbers.
-    /\ \E c \in [Document -> {Nil} \cup [Key -> {0, Nil}]]:
+    \* keys to their version numbers. It is possible to a document to exist but have no non-Nil keys.
+    /\ \E c \in [Document -> {Nil} \cup DocumentVal]:
         /\ remoteColl = c
         \* Place each existing document at some place in the scan order.
         /\ LET docs == {d \in DOMAIN c : c[d] # Nil} IN
@@ -175,8 +187,8 @@ Init ==
     \* clone documents.
     /\ syncing = TRUE
 
-\* Only execute ops while the sync is ongoing.
-InsertAction == \E d \in Document: syncing /\ Insert(d)
+\* Define remote op actions. We only execute ops while the sync is ongoing i.e. we're still fetching log entries.
+InsertAction == \E d \in Document: \E dv \in DocumentVal : syncing /\ Insert(d, dv)
 MMAPUpdateAction == \E d \in Document: \E k \in Key : syncing /\ MMAPUpdate(d, k)
 WTUpdateAction == \E d \in Document: \E k \in Key : syncing /\ WTUpdate(d, k)
 
@@ -199,7 +211,16 @@ Spec == Init /\ [][Next]_vars
 
 \* If the sync has finished and we have applied all necessary operations, then the data between both 
 \* nodes should match.
-DataConsistency == (syncing = FALSE /\ oplog = <<>>) => /\ remoteColl = localColl
+DataConsistency == (syncing = FALSE /\ oplog = <<>>) => remoteColl = localColl
+
+\* Do we ever try to insert a document that already exists in the local collection during the clone phase.
+InsertExistingDocDuringClone == 
+    /\ syncing = TRUE
+    /\ ~CloneComplete
+    \* The next document to fetch is 'd', but 'd' already exists locally.
+    /\ \E d \in Document: 
+        /\ Len(remoteCollSeq) > 0
+        /\ remoteCollSeq[cursor] = d /\ localColl[d] # Nil
 
 \* A state predicate that holds true when the next step we take would be to apply an update operation 
 \* to a document that doesn't exist locally.
@@ -208,17 +229,8 @@ ApplyUpdateToMissingDoc ==
     /\ syncing = FALSE 
     /\ Head(oplog)[1] = "u" \* about to apply an insert.
     /\ LET d == Head(oplog)[2] IN localColl[d] = Nil
-    
-\* In WiredTiger, if an insert occurs during the collection clone, we should be guaranteed to clone it.
-\* (Check this)
-AlwaysCloneInsertWT == 
-    \E d \in Document:
-        (/\ Len(oplog) > 0 
-         /\ cursor # EOF 
-         /\ Head(oplog)[1] = "i"
-         /\ Head(oplog)[2] = d) ~> cursor # EOF /\ localColl[d] # Nil
 
 ====================================================================================================
 \* Modification History
-\* Last modified Wed Jul 17 16:54:15 EDT 2019 by williamschultz
+\* Last modified Thu Jul 18 12:57:36 EDT 2019 by williamschultz
 \* Created Mon Jul 15 22:10:20 EDT 2019 by williamschultz
