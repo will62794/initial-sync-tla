@@ -115,6 +115,17 @@ WTUpdate(d, k) ==
     /\ UNCHANGED <<remoteCollSeq, cursor>>
     /\ UNCHANGED <<localColl, syncing>>       
 
+Delete(d) == 
+    \* The document must exist. 
+    /\ remoteColl[d] # Nil
+    /\ remoteColl' = [remoteColl EXCEPT ![d] = Nil]
+    /\ oplog' = Append(oplog, <<"d", d, Nil, Nil>>)
+    /\ LET ind == CHOOSE i \in DOMAIN remoteCollSeq : remoteCollSeq[i] = d IN
+       /\ remoteCollSeq' = DeleteElement(remoteCollSeq, ind) \* remove the element.
+       /\ cursor' = IF cursor = EOF THEN cursor ELSE
+                    IF cursor > ind THEN (cursor - 1) ELSE cursor
+    /\ UNCHANGED <<localColl, syncing>>       
+
 \* Expression that represents whether the data clone is complete. If the cursor has moved past the end of the 
 \* remote collection sequence, then it should moved transitioned to the EOF state.
 CloneComplete == (cursor = EOF)
@@ -131,7 +142,23 @@ FetchDoc ==
         \* end of the collection, so that it cannot retrieve any more documents.
         /\ cursor' = IF (cursor + 1) > Len(remoteCollSeq) THEN EOF ELSE (cursor + 1)
         /\ UNCHANGED <<remoteColl, remoteCollSeq, oplog, syncing>>
-    
+
+\* Fetch a document only if it existed at the beginning of the collection clone.
+SkipDocFetch == 
+    \* Make sure the cursor is not exhausted.
+    /\ ~CloneComplete 
+    /\ cursor <= Len(remoteCollSeq)
+    /\ LET d == remoteCollSeq[cursor] IN
+        \* If this document was inserted during the clone, it's not necessary to clone it.
+        /\ \E i \in DOMAIN oplog : oplog[i][1] = "i" /\ oplog[i][2] = d
+        \* Advance the cursor as normal but don't actually fetch the document.
+        /\ UNCHANGED localColl
+        \* Advance the cursor. We use a special 'EOF' value to indicate that the cursor has run past the 
+        \* end of the collection, so that it cannot retrieve any more documents.
+        /\ cursor' = IF (cursor + 1) > Len(remoteCollSeq) THEN EOF ELSE (cursor + 1)
+        /\ UNCHANGED <<remoteColl, remoteCollSeq, oplog, syncing>>
+
+  
 \* Finish the sync. This can happen any time after the data clone is completed. (ACTION) 
 \*
 \* In this spec, this means the sync source will stop executing new operations. In the real
@@ -159,7 +186,8 @@ ApplyOp ==
                     \* The document doesn't exist locally. Create it with the single key value. (i.e. an "upsert").
                     THEN [ik \in Key |-> IF ik = k THEN v ELSE Nil] 
                     \* The document exists locally and we update the key. 
-                    ELSE [localColl[d] EXCEPT ![k] = v]]            
+                    ELSE [localColl[d] EXCEPT ![k] = v]]    
+           ELSE IF op = "d" THEN localColl' = [localColl EXCEPT ![d] = Nil]
            ELSE UNCHANGED <<localColl>>
     /\ oplog' = Tail(oplog)
     /\ UNCHANGED <<remoteColl, remoteCollSeq, cursor, syncing>>
@@ -191,15 +219,21 @@ Init ==
 InsertAction == \E d \in Document: \E dv \in DocumentVal : syncing /\ Insert(d, dv)
 MMAPUpdateAction == \E d \in Document: \E k \in Key : syncing /\ MMAPUpdate(d, k)
 WTUpdateAction == \E d \in Document: \E k \in Key : syncing /\ WTUpdate(d, k)
+DeleteAction == \E d \in Document : syncing /\ Delete(d)
 
 Next == 
-    \* A remote op occurs.
+    \* Remote op actions.
     \/ InsertAction
     \* Can choose the collection scan semantics.
 \*    \/ MMAPUpdateAction
     \/ WTUpdateAction
+    \/ DeleteAction
+    \* Initial sync actions.
     \/ FetchDoc
     \/ FinishSync
+    \* Allow the data clone to skip a document if it was inserted during the initial sync. In other words,
+    \* it did not exist in the remote collection when the data clone started.
+    \/ SkipDocFetch
     \* Apply operations after the collection clone is finished.
     \/ ApplyOp
 
@@ -245,5 +279,5 @@ ApplyUpdateToMissingDoc ==
 
 ====================================================================================================
 \* Modification History
-\* Last modified Thu Jul 18 14:37:59 EDT 2019 by williamschultz
+\* Last modified Fri Jul 19 16:46:46 EDT 2019 by williamschultz
 \* Created Mon Jul 15 22:10:20 EDT 2019 by williamschultz
