@@ -143,7 +143,7 @@ FetchDoc ==
         /\ cursor' = IF (cursor + 1) > Len(remoteCollSeq) THEN EOF ELSE (cursor + 1)
         /\ UNCHANGED <<remoteColl, remoteCollSeq, oplog, syncing>>
 
-\* Fetch a document only if it existed at the beginning of the collection clone.
+\* Skip a document if it did not exist at the beginning of the collection clone.
 SkipDocFetch == 
     \* Make sure the cursor is not exhausted.
     /\ ~CloneComplete 
@@ -189,6 +189,7 @@ ApplyOp ==
                     ELSE [localColl[d] EXCEPT ![k] = v]]    
            ELSE IF op = "d" THEN localColl' = [localColl EXCEPT ![d] = Nil]
            ELSE UNCHANGED <<localColl>>
+    \* Remove the op.
     /\ oplog' = Tail(oplog)
     /\ UNCHANGED <<remoteColl, remoteCollSeq, cursor, syncing>>
 
@@ -202,7 +203,7 @@ Init ==
     /\ oplog = <<>>
     \* A collection is a map from document ids to the values of those documents. Document non-existence is 
     \* represented by a document mapping to 'Nil'. If a document exists, its value is itself a mapping from
-    \* keys to their version numbers. It is possible to a document to exist but have no non-Nil keys.
+    \* keys to their version numbers.
     /\ \E c \in [Document -> {Nil} \cup DocumentVal]:
         /\ remoteColl = c
         \* Place each existing document at some place in the scan order.
@@ -232,8 +233,8 @@ Next ==
     \/ FetchDoc
     \/ FinishSync
     \* Allow the data clone to skip a document if it was inserted during the initial sync. In other words,
-    \* it did not exist in the remote collection when the data clone started.
-    \/ SkipDocFetch
+    \* it did not exist in the remote collection when the data clone started. (TODO)
+    \* \/ SkipDocFetch
     \* Apply operations after the collection clone is finished.
     \/ ApplyOp
 
@@ -246,6 +247,10 @@ Spec == Init /\ [][Next]_vars
 \* If the sync has finished and we have applied all necessary operations, then the data between both 
 \* nodes should match. This should be the fundamental high level correctness requirement of initial sync.
 DataConsistency == (syncing = FALSE /\ oplog = <<>>) => remoteColl = localColl
+
+\* An expression that defines the set of documents that existed at the beginning of the data clone.
+\* (TODO).
+DocsThatExistedAtBeginningOfClone == TRUE
 
 
 (**************************************************************************************************)
@@ -279,5 +284,5 @@ ApplyUpdateToMissingDoc ==
 
 ====================================================================================================
 \* Modification History
-\* Last modified Fri Jul 19 16:46:46 EDT 2019 by williamschultz
+\* Last modified Sat Jul 20 14:13:29 EDT 2019 by williamschultz
 \* Created Mon Jul 15 22:10:20 EDT 2019 by williamschultz
