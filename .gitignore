@@ -1,3 +1,6 @@
 *.toolbox/
 *.DS_Store
 *.pdf
+states/
+.vscode
+*.out
