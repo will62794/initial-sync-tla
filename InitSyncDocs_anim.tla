@@ -4,8 +4,8 @@
 \*
 \* Visualizes:
 \*   - oplog       : queued operations (i / u / d), head at left
-\*   - remoteCollSeq : the sync source's scan order, with the cursor highlighted
-\*   - localColl   : per-scan-position indicator of whether the doc has been cloned
+\*   - remoteCollSeq : the sync source's scan order, with each remote doc state shown
+\*   - localColl   : per-scan-position document state in the local collection
 \*   - syncing / cursor : status line at the bottom
 \*
 
@@ -34,12 +34,12 @@ Group(children, attrs) == SVGElem("g", attrs, children, "")
 \* ---------- Layout constants ----------
 
 X0 == 20
-CellW == 42
-CellH == 28
+CellW == 130
+CellH == 44
 RowOplogY == 36
 RowRemoteY == 96
-RowLocalY == 158
-StatusY == 228
+RowLocalY == 176
+StatusY == 272
 
 \* ---------- Status / labels ----------
 
@@ -52,7 +52,14 @@ SyncLine ==
         \o "   cloneComplete=" \o ToString(CloneComplete)
         \o "   " \o CursorLabel
 
+DataConsistencyLine ==
+    "DataConsistency=" \o IF DataConsistency THEN "OK" ELSE "VIOLATED"
+
 \* ---------- Remote scan row ----------
+
+RemoteDocStateLabel(d) ==
+    IF remoteColl[d] = Nil THEN ToString(d) \o ": Nil"
+    ELSE ToString(d) \o ": " \o ToString(remoteColl[d])
 
 RemoteCell(i) ==
     LET d == remoteCollSeq[i]
@@ -66,10 +73,10 @@ RemoteCell(i) ==
                 [ fill        |-> IF atCursor THEN "#fff3cd" ELSE "#e9ecef",
                   stroke      |-> IF atCursor THEN "#0d6efd" ELSE "#333333" ]),
             Text(
-                X0 + (i - 1) * CellW + 5,
-                RowRemoteY + 19,
-                ToString(d),
-                ( "font-size" :> "11px" @@ "font-family" :> "sans-serif" ))
+                X0 + (i - 1) * CellW + 3,
+                RowRemoteY + 16,
+                RemoteDocStateLabel(d),
+                ( "font-size" :> "9px" @@ "font-family" :> "sans-serif" ))
         >>, [a \in {} |-> {}])
 
 RemoteRow ==
@@ -80,10 +87,13 @@ RemoteRow ==
 
 \* ---------- Local clone row (aligned under each scan position) ----------
 
+LocalDocStateLabel(d) ==
+    IF localColl[d] = Nil THEN ToString(d) \o ": Nil"
+    ELSE ToString(d) \o ": " \o ToString(localColl[d])
+
 LocalCell(i) ==
     LET d   == remoteCollSeq[i]
         lv  == localColl[d]
-        sym == IF lv = Nil THEN "-" ELSE "+"
     IN  Group(<<
             Rect(
                 X0 + (i - 1) * CellW,
@@ -93,10 +103,10 @@ LocalCell(i) ==
                 [ fill   |-> IF lv = Nil THEN "#f8d7da" ELSE "#d1e7dd",
                   stroke |-> "#333333" ]),
             Text(
-                X0 + (i - 1) * CellW + 14,
-                RowLocalY + 19,
-                sym,
-                ( "font-size" :> "14px" @@ "font-family" :> "sans-serif" ))
+                X0 + (i - 1) * CellW + 3,
+                RowLocalY + 16,
+                LocalDocStateLabel(d),
+                ( "font-size" :> "9px" @@ "font-family" :> "sans-serif" ))
         >>, [a \in {} |-> {}])
 
 LocalRow ==
@@ -134,7 +144,9 @@ SectionTitles ==
         Text(X0, RowLocalY  - 14, "local clone (localColl per position)",
             ( "font-weight" :> "bold" @@ "font-family" :> "sans-serif" @@ "font-size" :> "12px" )),
         Text(X0, StatusY, SyncLine,
-            ( "fill" :> (IF syncing THEN "#856404" ELSE "#155724") @@ "font-size" :> "13px" @@ "font-family" :> "sans-serif" ))
+            ( "fill" :> (IF syncing THEN "#856404" ELSE "#155724") @@ "font-size" :> "13px" @@ "font-family" :> "sans-serif" )),
+        Text(X0, StatusY + 18, DataConsistencyLine,
+            ( "fill" :> (IF DataConsistency THEN "#155724" ELSE "#842029") @@ "font-size" :> "13px" @@ "font-family" :> "sans-serif" ))
     >>, [a \in {} |-> {}])
 
 \* ---------- Top-level animation view ----------
