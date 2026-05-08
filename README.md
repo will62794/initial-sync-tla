@@ -5,6 +5,8 @@ This TLA+ specification models a simplified version of the MongoDB initial sync 
 
 The cursor semantics for updates can be toggled between MMAPv1 and WiredTiger behavior by choosing the `MMAPUpdateAction` or the `WTUpdateAction`. The key correctness requirement is defined in the `DataConsistency` predicate, which states that if the initial sync has completed then the data on the local and remote nodes should be the same. 
 
+You can interact with an explorable version of this spec [here](https://will62794.github.io/spectacle/#!/home?specpath=https%3A%2F%2Fraw.githubusercontent.com%2Fwill62794%2Finitial-sync-tla%2Frefs%2Fheads%2Fmaster%2FInitSyncDocs.tla&initPred=Init&nextPred=Next&constants%5BDocument%5D=%7Bd1%2Cd2%7D&constants%5BKey%5D=%7Bk1%2Ck2%7D&constants%5BNil%5D=Nil&constants%5BEOF%5D=EOF&trace=51cb94a8).
+
 ## Model Checking
 
 I ran TLC with a model that instantiates the following:
