@@ -5,17 +5,15 @@
 
 EXTENDS Sequences, Naturals, Integers, FiniteSets
 
-\* The set of all possible document ids.
-CONSTANT Document
-
-\* The set of all possible document keys (i.e. fields).
-CONSTANT Key
+\* The set of all possible document ids and document keys (i.e. fields).
+CONSTANT Document, Key
 
 \* An empty value.
 CONSTANT Nil
 
 \* Value representing an exhausted cursor.
 CONSTANT EOF
+
 
 \* The log of operations that occur on the sync source.
 VARIABLE oplog 
@@ -39,6 +37,7 @@ VARIABLE localColl
 VARIABLE syncing
 
 vars == <<oplog, remoteColl, remoteCollSeq, cursor, localColl, syncing>>
+    
     
 Range(f) == {f[i] : i \in DOMAIN f}  
 
