@@ -64,6 +64,7 @@ DeleteElement(seq, index) == [i \in 1..(Len(seq)-1) |-> IF i<index THEN seq[i] E
 
 \* The sync source performs an insert. (ACTION)
 Insert(d, dv) == 
+    /\ syncing
     \* Cannot have duplicate documents.
     /\ remoteColl[d] = Nil
     \* Insert the initial document.
@@ -74,7 +75,8 @@ Insert(d, dv) ==
     /\ UNCHANGED <<localColl, cursor, syncing>>
 
 \* The sync source performs an update. (ACTION)
-MMAPUpdate(d, k) == 
+UpdateMMAP(d, k) == 
+    /\ syncing
     \* The document must exist. 
     /\ remoteColl[d] # Nil
     \* The key in the doc may or may not exist already. Bump its version if it does.
@@ -102,7 +104,8 @@ MMAPUpdate(d, k) ==
     /\ UNCHANGED <<localColl, syncing>>   
 
 \* The sync source performs an update. (ACTION)
-WTUpdate(d, k) == 
+UpdateWT(d, k) == 
+    /\ syncing
     \* The document must exist. 
     /\ remoteColl[d] # Nil
     \* The key in the doc may or may not exist already. Bump its version if it does.
@@ -116,6 +119,7 @@ WTUpdate(d, k) ==
     /\ UNCHANGED <<localColl, syncing>>       
 
 Delete(d) == 
+    /\ syncing
     \* The document must exist. 
     /\ remoteColl[d] # Nil
     /\ remoteColl' = [remoteColl EXCEPT ![d] = Nil]
@@ -170,7 +174,7 @@ FinishSync ==
 
 \* Once the collection clone and oplog fetching has completed, apply an operation on the receiver. We remove
 \* ops from the oplog as we apply them. (ACTION)
-ApplyOp == 
+ApplyNextOp == 
     /\ syncing = FALSE
     /\ Len(oplog) > 0 \* we must have ops left to apply.
     /\ LET op == Head(oplog)[1]
@@ -216,27 +220,21 @@ Init ==
     \* clone documents.
     /\ syncing = TRUE
 
-\* Define remote op actions. We only execute ops while the sync is ongoing i.e. we're still fetching log entries.
-InsertAction == \E d \in Document: \E dv \in DocumentVal : syncing /\ Insert(d, dv)
-MMAPUpdateAction == \E d \in Document: \E k \in Key : syncing /\ MMAPUpdate(d, k)
-WTUpdateAction == \E d \in Document: \E k \in Key : syncing /\ WTUpdate(d, k)
-DeleteAction == \E d \in Document : syncing /\ Delete(d)
-
 Next == 
-    \* Remote op actions.
-    \/ InsertAction
-    \* Can choose the collection scan semantics.
-\*    \/ MMAPUpdateAction
-    \/ WTUpdateAction
-    \/ DeleteAction
-    \* Initial sync actions.
+    \** Remote collection actions.
+    \/ \E d \in Document: \E dv \in DocumentVal : Insert(d, dv)
+    \/ \E d \in Document : Delete(d)
+    \* Can choose the update behavior, impacting collection scan semantics.
+    \/ \E d \in Document: \E k \in Key : UpdateMMAP(d, k)
+    \* \/ \E d \in Document: \E k \in Key : UpdateWT(d, k)
+    \** Initial sync actions.
     \/ FetchDoc
     \/ FinishSync
-    \* Allow the data clone to skip a document if it was inserted during the initial sync. In other words,
-    \* it did not exist in the remote collection when the data clone started. (TODO)
+    \/ ApplyNextOp
+    \* Allow the data clone to skip a document if it was inserted during the
+    \* initial sync. In other words, it did not exist in the remote collection
+    \* when the data clone started. (TODO)
     \* \/ SkipDocFetch
-    \* Apply operations after the collection clone is finished.
-    \/ ApplyOp
 
 Spec == Init /\ [][Next]_vars
 
@@ -247,11 +245,6 @@ Spec == Init /\ [][Next]_vars
 \* If the sync has finished and we have applied all necessary operations, then the data between both 
 \* nodes should match. This should be the fundamental high level correctness requirement of initial sync.
 DataConsistency == (syncing = FALSE /\ oplog = <<>>) => remoteColl = localColl
-
-\* An expression that defines the set of documents that existed at the beginning of the data clone.
-\* (TODO).
-DocsThatExistedAtBeginningOfClone == TRUE
-
 
 (**************************************************************************************************)
 (* Even though satisfaction of the 'DataConsistency' invariant should theoretically be sufficient *)
@@ -283,6 +276,3 @@ ApplyUpdateToMissingDoc ==
     /\ LET d == Head(oplog)[2] IN localColl[d] = Nil
 
 ====================================================================================================
-\* Modification History
-\* Last modified Sat Jul 20 14:13:29 EDT 2019 by williamschultz
-\* Created Mon Jul 15 22:10:20 EDT 2019 by williamschultz
