@@ -74,7 +74,7 @@ Insert(d, dv) ==
     /\ UNCHANGED <<localColl, cursor, syncing>>
 
 \* The sync source performs an update. (ACTION)
-UpdateMMAP(d, k) == 
+UpdateMMAP(d, k, newPos) == 
     /\ syncing
     \* The document must exist. 
     /\ remoteColl[d] # Nil
@@ -89,12 +89,14 @@ UpdateMMAP(d, k) ==
     \* end of the sequence.
     /\ LET ind == CHOOSE i \in DOMAIN remoteCollSeq : remoteCollSeq[i] = d IN
        \* Move to the beginning.
-       \/ (/\ remoteCollSeq' = <<d>> \o DeleteElement(remoteCollSeq, ind) \* move to beginning.
+       \/ (/\ newPos = "beg"
+           /\ remoteCollSeq' = <<d>> \o DeleteElement(remoteCollSeq, ind) \* move to beginning.
            \* If the cursor is EOF or the document was already the first in the sequence, 
            \* do not adjust the cursor.
            /\ cursor' = IF (cursor = EOF \/ ind = 1) THEN cursor ELSE cursor + 1)
        \* Move to the end. 
-       \/ (/\ remoteCollSeq' = DeleteElement(remoteCollSeq, ind) \o <<d>> \* move to end.
+       \/ ( newPos = "end"
+           /\ remoteCollSeq' = DeleteElement(remoteCollSeq, ind) \o <<d>> \* move to end.
            \* If the cursor is EOF or the document was already the last in the sequence, 
            \* do not adjust the cursor.
            /\ cursor' = IF (cursor = EOF \/ ind = Len(remoteCollSeq)) THEN cursor 
@@ -224,7 +226,7 @@ Next ==
     \/ \E d \in Document: \E dv \in DocumentVal : Insert(d, dv)
     \/ \E d \in Document : Delete(d)
     \* Can choose the update behavior, impacting collection scan semantics.
-    \/ \E d \in Document: \E k \in Key : UpdateMMAP(d, k)
+    \/ \E d \in Document: \E k \in Key, newPos \in {"beg", "end"} : UpdateMMAP(d, k, newPos)
     \* \/ \E d \in Document: \E k \in Key : UpdateWT(d, k)
     \** Initial sync actions.
     \/ FetchDoc
