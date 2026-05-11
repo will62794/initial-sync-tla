@@ -74,7 +74,7 @@ Insert(d, dv) ==
     /\ UNCHANGED <<localColl, cursor, syncing>>
 
 \* The sync source performs an update. (ACTION)
-UpdateMMAP(d, k, newPos) == 
+UpdateMMAP(d, k) == 
     /\ syncing
     \* The document must exist. 
     /\ remoteColl[d] # Nil
@@ -85,23 +85,13 @@ UpdateMMAP(d, k, newPos) ==
         
     (* MMAPv1 Specific Semantics *)
     \* The document may be moved to some new, arbitrary position in the scan order. To make this spec
-    \* easier to write, we assume for now that the doc is either moved to the beginning of the sequence or the
-    \* end of the sequence.
+    \* easier to write, we assume for now that the doc is moved to the beginning of the sequence.
     /\ LET ind == CHOOSE i \in DOMAIN remoteCollSeq : remoteCollSeq[i] = d IN
        \* Move to the beginning.
-       \/ (/\ newPos = "beg"
-           /\ remoteCollSeq' = <<d>> \o DeleteElement(remoteCollSeq, ind) \* move to beginning.
+       \/ (/\ remoteCollSeq' = <<d>> \o DeleteElement(remoteCollSeq, ind) \* move to beginning.
            \* If the cursor is EOF or the document was already the first in the sequence, 
            \* do not adjust the cursor.
            /\ cursor' = IF (cursor = EOF \/ ind = 1) THEN cursor ELSE cursor + 1)
-       \* Move to the end. 
-       \/ ( newPos = "end"
-           /\ remoteCollSeq' = DeleteElement(remoteCollSeq, ind) \o <<d>> \* move to end.
-           \* If the cursor is EOF or the document was already the last in the sequence, 
-           \* do not adjust the cursor.
-           /\ cursor' = IF (cursor = EOF \/ ind = Len(remoteCollSeq)) THEN cursor 
-                        ELSE IF cursor <= ind THEN cursor
-                        ELSE cursor - 1)
     /\ UNCHANGED <<localColl, syncing>>   
 
 \* The sync source performs an update. (ACTION)
@@ -226,16 +216,12 @@ Next ==
     \/ \E d \in Document: \E dv \in DocumentVal : Insert(d, dv)
     \/ \E d \in Document : Delete(d)
     \* Can choose the update behavior, impacting collection scan semantics.
-    \/ \E d \in Document: \E k \in Key, newPos \in {"beg", "end"} : UpdateMMAP(d, k, newPos)
+    \/ \E d \in Document: \E k \in Key : UpdateMMAP(d, k)
     \* \/ \E d \in Document: \E k \in Key : UpdateWT(d, k)
     \** Initial sync actions.
     \/ FetchDoc
     \/ FinishSync
     \/ ApplyNextOp
-    \* Allow the data clone to skip a document if it was inserted during the
-    \* initial sync. In other words, it did not exist in the remote collection
-    \* when the data clone started. (TODO)
-    \* \/ SkipDocFetch
 
 Spec == Init /\ [][Next]_vars
 
@@ -245,7 +231,7 @@ Spec == Init /\ [][Next]_vars
 
 \* If the sync has finished and we have applied all necessary operations, then the data between both 
 \* nodes should match. This should be the fundamental high level correctness requirement of initial sync.
-DataConsistency == (syncing = FALSE /\ oplog = <<>>) => remoteColl = localColl
+DataConsistency == (syncing = FALSE /\ oplog = <<>>) => (remoteColl = localColl)
 
 (**************************************************************************************************)
 (* Even though satisfaction of the 'DataConsistency' invariant should theoretically be sufficient *)
