@@ -76,7 +76,7 @@ RemoteCell(i) ==
                 X0 + (i - 1) * CellW + 3,
                 RowRemoteY + 16,
                 RemoteDocStateLabel(d),
-                ( "font-size" :> "9px" @@ "font-family" :> "sans-serif" ))
+                ( "font-size" :> "10px" @@ "font-family" :> "sans-serif" ))
         >>, [a \in {} |-> {}])
 
 RemoteRow ==
@@ -106,7 +106,7 @@ LocalCell(i) ==
                 X0 + (i - 1) * CellW + 3,
                 RowLocalY + 16,
                 LocalDocStateLabel(d),
-                ( "font-size" :> "9px" @@ "font-family" :> "sans-serif" ))
+                ( "font-size" :> "10px" @@ "font-family" :> "sans-serif" ))
         >>, [a \in {} |-> {}])
 
 LocalRow ==
@@ -124,7 +124,7 @@ OplogCell(j) ==
         Rect(X0 + (j - 1) * 30, RowOplogY, 28, 24,
             [ fill |-> "#cfe2ff", stroke |-> "#084298" ]),
         Text(X0 + (j - 1) * 30 + 9, RowOplogY + 17, OpKind(j),
-            ( "font-size" :> "11px" @@ "font-family" :> "sans-serif" ))
+            ( "font-size" :> "12px" @@ "font-family" :> "sans-serif" ))
     >>, [a \in {} |-> {}])
 
 OplogRow ==
