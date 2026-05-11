@@ -3,7 +3,7 @@
 \* Spectacle-style SVG animation view for InitSyncDocs.
 \*
 \* Visualizes:
-\*   - oplog       : queued operations (i / u / d), head at left
+\*   - oplog       : queued operations (i / u / d) with payload text, head at left
 \*   - remoteCollSeq : the sync source's scan order, with each remote doc state shown
 \*   - localColl   : per-scan-position document state in the local collection
 \*   - syncing / cursor : status line at the bottom
@@ -37,9 +37,11 @@ X0 == 20
 CellW == 130
 CellH == 44
 RowOplogY == 36
-RowRemoteY == 96
-RowLocalY == 176
-StatusY == 272
+\* Extra vertical space between the oplog strip and the remote scan row.
+GapBelowOplog == 28
+RowRemoteY == 96 + GapBelowOplog
+RowLocalY == 176 + GapBelowOplog
+StatusY == 272 + GapBelowOplog
 
 \* ---------- Status / labels ----------
 
@@ -117,19 +119,46 @@ LocalRow ==
 
 \* ---------- Oplog row (head at left) ----------
 
+\* Per-entry horizontal stride (kind + payload; narrow width, text may extend past rect in SVG).
+OplogCellW == 100
+OplogCellH == 40
+OplogCellDX == OplogCellW + 4
+\* SVG corner radius for oplog rects (`rx` / `ry` on `<rect>`).
+OplogCornerR == "6"
+
 OpKind(j)  == oplog[j][1]
 
+\* Human-readable payload for each op tuple <<op, d, k_or_nil, v_or_doc>>.
+OplogOpDetail(j) ==
+    LET op == oplog[j][1]
+        d  == oplog[j][2]
+        k  == oplog[j][3]
+        v  == oplog[j][4]
+    IN IF op = "i" THEN
+           ToString(d) \o " ← " \o ToString(v)
+       ELSE IF op = "u" THEN
+           ToString(d) \o "." \o ToString(k) \o "=" \o ToString(v)
+       ELSE IF op = "d" THEN
+           ToString(d)
+       ELSE
+           ToString(oplog[j])
+
 OplogCell(j) ==
-    Group(<<
-        Rect(X0 + (j - 1) * 30, RowOplogY, 28, 24,
-            [ fill |-> "#cfe2ff", stroke |-> "#084298" ]),
-        Text(X0 + (j - 1) * 30 + 9, RowOplogY + 17, OpKind(j),
-            ( "font-size" :> "12px" @@ "font-family" :> "sans-serif" ))
-    >>, [a \in {} |-> {}])
+    LET x == X0 + (j - 1) * OplogCellDX
+    IN  Group(<<
+            Rect(x, RowOplogY, OplogCellW - 2, OplogCellH,
+                [ fill |-> "#cfe2ff", stroke |-> "#084298",
+                  rx |-> OplogCornerR, ry |-> OplogCornerR ]),
+            Text(x + 6, RowOplogY + 16, OpKind(j),
+                ( "font-size" :> "12px" @@ "font-weight" :> "600"
+                  @@ "font-family" :> "sans-serif" )),
+            Text(x + 6, RowOplogY + 32, OplogOpDetail(j),
+                ( "font-size" :> "9px" @@ "font-family" :> "sans-serif" ))
+        >>, [a \in {} |-> {}])
 
 OplogRow ==
     IF Len(oplog) = 0 THEN
-        Text(X0, RowOplogY + 17, "oplog: (empty)", [ fill |-> "#666666" ])
+        Text(X0, RowOplogY + 22, "oplog: (empty)", [ fill |-> "#666666" ])
     ELSE
         Group([j \in 1..Len(oplog) |-> OplogCell(j)], [a \in {} |-> {}])
 
