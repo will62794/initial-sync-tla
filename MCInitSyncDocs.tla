@@ -1,8 +1,11 @@
 ---- MODULE MCInitSyncDocs ----
-EXTENDS InitSyncDocs
+EXTENDS InitSyncDocs, TLC
 
-StateConstraint == Len(oplog) <= 4
+StateConstraint == Len(oplog) <= 5
 
 NeverInsertExistingDocDuringClone == ~InsertExistingDocDuringClone
+NeverApplyUpdateToMissingDoc == ~ApplyUpdateToMissingDoc
+
+Symmetry == Permutations(Document \cup Key)
 
 ====
